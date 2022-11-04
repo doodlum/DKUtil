@@ -207,7 +207,7 @@ namespace DKUtil
 			template <std::size_t POS = 0, std::size_t COUNT = npos>
 			[[nodiscard]] consteval auto substr() const noexcept
 			{
-				return static_string<CharT, COUNT != npos ? COUNT : N - POS>(this->data() + POS);
+				return static_string < CharT, COUNT != npos ? COUNT : N - POS > (this->data() + POS);
 			}
 
 			template <std::size_t N1, class... Us>
@@ -303,6 +303,17 @@ namespace DKUtil
 				});
 		}
 
+		inline bool istarts_with(std::string_view a_str1, std::string_view a_str2)
+		{
+			if (a_str2.length() > a_str1.length())
+				return false;
+
+			return std::ranges::starts_with(a_str1, a_str2,
+				[](char ch1, char ch2) {
+					return std::toupper(ch1) == std::toupper(ch2);
+				});
+		}
+
 		inline std::string join(const std::vector<std::string>& a_vec, const char* a_delimiter)
 		{
 			std::ostringstream os;
@@ -382,18 +393,13 @@ namespace DKUtil
 			}
 		}
 
-		inline std::vector<std::string> split(const std::string& a_str, const std::string& a_deliminator)
+		inline std::vector<std::string> split(const std::string_view a_str, const std::string_view a_deliminator)
 		{
 			std::vector<std::string> list;
-			std::string strCopy = a_str;
-			size_t pos = 0;
-			std::string token;
-			while ((pos = strCopy.find(a_deliminator)) != std::string::npos) {
-				token = strCopy.substr(0, pos);
-				list.push_back(token);
-				strCopy.erase(0, pos + a_deliminator.length());
+			for (const auto& token : std::views::split(a_str, a_deliminator)) {
+				list.emplace_back(token.begin(), token.end());
 			}
-			list.push_back(strCopy);
+
 			return list;
 		}
 	}  // namespace string
@@ -432,20 +438,20 @@ namespace DKUtil
 		class Singleton
 		{
 		public:
-			static derived_t* GetSingleton()
+			constexpr static derived_t* GetSingleton()
 			{
 				static derived_t singleton;
 				return std::addressof(singleton);
 			}
 
-			Singleton(const Singleton&) = delete;
-			Singleton(Singleton&&) = delete;
-			Singleton& operator=(const Singleton&) = delete;
-			Singleton& operator=(Singleton&&) = delete;
+			constexpr Singleton(const Singleton&) = delete;
+			constexpr Singleton(Singleton&&) = delete;
+			constexpr Singleton& operator=(const Singleton&) = delete;
+			constexpr Singleton& operator=(Singleton&&) = delete;
 
 		protected:
-			Singleton() = default;
-			virtual ~Singleton() = default;
+			constexpr Singleton() = default;
+			constexpr ~Singleton() = default;
 		};
 
 		// ryan is really a wiz, I shamelessly copy
@@ -551,7 +557,7 @@ namespace DKUtil
 
 
 		// taken from CommonLib, added ranged based view iterator for additive/flag enums
-		template <class Enum, 
+		template <class Enum,
 			class Underlying = std::underlying_type_t<Enum>>
 		class enumeration
 		{
@@ -578,7 +584,7 @@ namespace DKUtil
 			constexpr enumeration(enumeration&&) noexcept = default;
 
 			template <class U2>  // NOLINTNEXTLINE(google-explicit-constructor)
-			constexpr enumeration(enumeration<Enum, U2> a_rhs) noexcept :
+			constexpr enumeration(enumeration<enum_type, U2> a_rhs) noexcept :
 				_impl(static_cast<underlying_type>(a_rhs.get()))
 			{}
 			constexpr enumeration(const std::same_as<enum_type> auto... a_values) noexcept :
@@ -645,14 +651,14 @@ namespace DKUtil
 			}
 
 			// static reflection
-			[[nodiscard]] constexpr std::string value_name(enum_type a_enum, bool a_full = false) noexcept
+			[[nodiscard]] constexpr std::string to_string(enum_type a_enum, bool a_full = false) noexcept
 			{
 				build_cache();
-				return value_name(is_flag() ? (std::bit_width<underlying_type>(std::to_underlying(a_enum)) - 1) : std::to_underlying(a_enum), a_full);
+				return to_string(is_flag() ? (std::bit_width<underlying_type>(std::to_underlying(a_enum)) - 1) : std::to_underlying(a_enum), a_full);
 			}
 
 			// underlying adaptor
-			[[nodiscard]] constexpr std::string value_name(const std::convertible_to<underlying_type> auto a_value, bool a_full = false) noexcept
+			[[nodiscard]] constexpr std::string to_string(const std::convertible_to<underlying_type> auto a_value, bool a_full = false) noexcept
 			{
 				build_cache();
 
@@ -667,6 +673,28 @@ namespace DKUtil
 				}
 
 				return _reflection.nameTbl[idx];
+			}
+
+			// string cast
+			[[nodiscard]] std::optional<enum_type> from_string(std::string a_enumString, bool a_caseSensitive = false) noexcept
+			{
+				if (a_enumString.empty()) {
+					return {};
+				}
+
+				build_cache();
+
+				for (auto& [idx, name] : _reflection.nameTbl) {
+					std::string shortName = name.substr(_reflection.type.length() + 2, name.length() - _reflection.type.length());
+					if ((a_caseSensitive && shortName.compare(a_enumString) == 0) ||
+						(!a_caseSensitive && string::iequals(shortName, a_enumString))) {
+						return static_cast<enum_type>(idx);
+					} else {
+						continue;
+					}
+				}
+
+				return {};
 			}
 
 			// enum name
@@ -714,7 +742,7 @@ namespace DKUtil
 				if (!is_flag()) {
 					ERROR("flag_range iterator called but enum is value_type!\nEnum name: {}\nEnum type: {}", enum_name(), type_name());
 				}
-#endif 
+#endif
 				if (a_begin == a_end) {
 					ERROR("Range iterator mandates different elements AND operable step value to construct a valid range!");
 				}
@@ -732,7 +760,7 @@ namespace DKUtil
 			template <enum_type E>
 			constexpr const char* cache() const noexcept
 			{
-				static std::regex r{ "::cache<(.*?)>" };
+				static std::regex r("::cache<(.*?)>");
 				std::cmatch m;
 				std::regex_search(__FUNCSIG__, m, r);
 

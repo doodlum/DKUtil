@@ -1,8 +1,8 @@
 #pragma once
 
 
-#include "Shared.hpp"
 #include "Assembly.hpp"
+#include "Shared.hpp"
 #include "Trampoline.hpp"
 
 
@@ -36,157 +36,6 @@ namespace DKUtil::Hook
 			Address(a_address), TramEntry(a_tramEntry), TramPtr(a_tramEntry)
 		{}
 	};
-
-
-	inline void WriteData(std::uintptr_t& a_dst, const void* a_data, const std::size_t a_size, bool a_forwardPtr = FORWARD_PTR, bool a_requestAlloc = REQUEST_ALLOC) noexcept
-	{
-		if (a_requestAlloc) {
-			void(TRAM_ALLOC(a_size));
-		}
-
-		DWORD oldProtect;
-
-		auto success = VirtualProtect(AsPointer(a_dst), a_size, PAGE_EXECUTE_READWRITE, std::addressof(oldProtect));
-		if (success != FALSE) {
-			std::memcpy(AsPointer(a_dst), a_data, a_size);
-			success = VirtualProtect(AsPointer(a_dst), a_size, oldProtect, std::addressof(oldProtect));
-		}
-
-		assert(success != FALSE);
-
-		if (a_forwardPtr) {
-			a_dst += a_size;
-		}
-	}
-
-	inline void WriteData(const std::uintptr_t& a_dst, const void* a_data, const std::size_t a_size, bool a_requestAlloc = NO_ALLOC) noexcept
-	{
-		return WriteData(const_cast<std::uintptr_t&>(a_dst), a_data, a_size, NO_FORWARD, a_requestAlloc);
-	}
-
-	void WriteImm(std::uintptr_t& a_dst, const dku_h_pod_t auto& a_data, bool a_forwardPtr = FORWARD_PTR, bool a_requestAlloc = REQUEST_ALLOC) noexcept
-	{
-		return WriteData(a_dst, std::addressof(a_data), sizeof(a_data), a_forwardPtr, a_requestAlloc);
-	}
-
-	inline void WriteImm(const std::uintptr_t& a_dst, const dku_h_pod_t auto& a_data, bool a_requestAlloc = NO_ALLOC) noexcept
-	{
-		return WriteData(const_cast<std::uintptr_t&>(a_dst), std::addressof(a_data), sizeof(a_data), NO_FORWARD, a_requestAlloc);
-	}
-
-	inline void WritePatch(std::uintptr_t& a_dst, const unpacked_data a_patch, bool a_forwardPtr = FORWARD_PTR, bool a_requestAlloc = REQUEST_ALLOC) noexcept
-	{
-		return WriteData(a_dst, a_patch.first, a_patch.second, a_forwardPtr, a_requestAlloc);
-	}
-
-	inline void WritePatch(const std::uintptr_t& a_dst, const unpacked_data a_patch, bool a_requestAlloc = NO_ALLOC) noexcept
-	{
-		return WriteData(const_cast<std::uintptr_t&>(a_dst), a_patch.first, a_patch.second, NO_FORWARD, a_requestAlloc);
-	}
-
-	inline void WritePatch(std::uintptr_t& a_dst, const Xbyak::CodeGenerator* a_patch, bool a_forwardPtr = FORWARD_PTR, bool a_requestAlloc = REQUEST_ALLOC) noexcept
-	{
-		return WriteData(a_dst, a_patch->getCode(), a_patch->getSize(), a_forwardPtr, a_requestAlloc);
-	}
-
-	inline void WritePatch(const std::uintptr_t& a_dst, const Xbyak::CodeGenerator* a_patch, bool a_requestAlloc = NO_ALLOC) noexcept
-	{
-		return WriteData(const_cast<std::uintptr_t&>(a_dst), a_patch->getCode(), a_patch->getSize(), NO_FORWARD, a_requestAlloc);
-	}
-
-	inline void WritePatch(std::uintptr_t& a_dst, const Patch* a_patch, bool a_forwardPtr = FORWARD_PTR, bool a_requestAlloc = REQUEST_ALLOC) noexcept
-	{
-		return WriteData(a_dst, a_patch->Data, a_patch->Size, a_forwardPtr, a_requestAlloc);
-	}
-
-	inline void WritePatch(const std::uintptr_t& a_dst, const Patch* a_patch, bool a_requestAlloc = NO_ALLOC) noexcept
-	{
-		return WriteData(const_cast<std::uintptr_t&>(a_dst), a_patch->Data, a_patch->Size, NO_FORWARD, a_requestAlloc);
-	}
-
-
-	inline std::string_view GetProcessName(HMODULE a_handle = 0) noexcept
-	{
-		static std::string fileName(MAX_PATH + 1, ' ');
-		auto res = GetModuleBaseNameA(GetCurrentProcess(), a_handle, fileName.data(), MAX_PATH + 1);
-		if (res == 0) {
-			fileName = "[ProcessHost]";
-			res = 13;
-		}
-
-		return { fileName.c_str(), res };
-	}
-
-
-	inline constexpr std::uintptr_t TblToAbs(const std::uintptr_t a_base, const std::uint16_t a_index, const std::size_t a_size = sizeof(Imm64)) noexcept
-	{
-		return AsAddress(a_base + a_index * a_size);
-	}
-
-
-	inline std::uintptr_t IDToAbs([[maybe_unused]] std::uint64_t a_ae, [[maybe_unused]] std::uint64_t a_se, [[maybe_unused]] std::uint64_t a_vr = 0)
-	{
-		DEBUG("DKU_H: Attempt to load {} address by id {}", IS_AE ? "AE" : IS_VR ? "VR" :
-																				   "SE",
-			IS_AE ? a_ae : a_vr ? a_vr :
-								  a_se);
-		std::uintptr_t resolved = a_vr ? REL::RelocationID(a_se, a_ae, a_vr).address() : REL::RelocationID(a_se, a_ae).address();
-		DEBUG("DKU_H: Resolved: {:X} | Base: {:X} | RVA: {:X}", REL::RelocationID(a_se, a_ae).address(), REL::Module::get().base(), resolved - REL::Module::get().base());
-
-		return resolved;
-	}
-
-
-	inline offset_pair RuntimeOffset(
-		[[maybe_unused]] const std::ptrdiff_t a_aeLow, [[maybe_unused]] const std::ptrdiff_t a_aeHigh,
-		[[maybe_unused]] const std::ptrdiff_t a_seLow, [[maybe_unused]] const std::ptrdiff_t a_seHigh,
-		[[maybe_unused]] const std::ptrdiff_t a_vrLow = -1, [[maybe_unused]] const std::ptrdiff_t a_vrHigh = -1)
-	{
-		switch (REL::Module::GetRuntime()) {
-		case REL::Module::Runtime::AE:
-			{
-				return std::make_pair(a_aeLow, a_aeHigh);
-			}
-		case REL::Module::Runtime::SE:
-			{
-				return std::make_pair(a_seLow, a_seHigh);
-			}
-		case REL::Module::Runtime::VR:
-			{
-				return a_vrLow != -1 ? std::make_pair(a_vrLow, a_vrHigh) : std::make_pair(a_seLow, a_seHigh);
-			}
-		default:
-			{
-				ERROR("DKU_H: Runtime offset failed to relocate for unknown runtime!");
-			}
-		}
-	}
-
-
-	inline const unpacked_data RuntimePatch(
-		[[maybe_unused]] const unpacked_data a_ae, 
-		[[maybe_unused]] const unpacked_data a_se, 
-		[[maybe_unused]] const unpacked_data a_vr = { nullptr, 0 }) noexcept
-	{
-		switch (REL::Module::GetRuntime()) {
-		case REL::Module::Runtime::AE:
-			{
-				return a_ae;
-			}
-		case REL::Module::Runtime::SE:
-			{
-				return a_se;
-			}
-		case REL::Module::Runtime::VR:
-			{
-				return (a_vr.first && a_vr.second) ? a_vr : a_se;
-			}
-		default:
-			{
-				ERROR("DKU_H: Runtime patch failed to relocate for unknown runtime!");
-			}
-		}
-	}
 
 
 	class ASMPatchHandle : public HookHandle
@@ -573,17 +422,10 @@ namespace DKUtil::Hook
 		}
 		DEBUG("DKU_H: Detour {} @ {} -> {} @ {}.{:X}", a_methodName, a_moduleName, a_funcInfo.Name.data(), PROJECT_NAME, a_funcInfo.Address);
 
-		auto* dosHeader = std::bit_cast<IMAGE_DOS_HEADER*>(GetModuleHandleA(a_moduleName));
-		if (!dosHeader) {
-			ERROR("DKU_H: IAT module name {} invalid", a_moduleName);
-		}
-
-		auto* ntHeader = std::bit_cast<IMAGE_NT_HEADERS*>(AsAddress(dosHeader) + dosHeader->e_lfanew);
-		if (!ntHeader || ntHeader->Signature != IMAGE_NT_SIGNATURE) {
-			ERROR("DKU_H: IAT NT header invalid");
-		}
-
-		auto* importDesc = std::bit_cast<IMAGE_IMPORT_DESCRIPTOR*>(dosHeader + ntHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+		auto base = AsAddress(GetModuleHandleA(a_moduleName));
+		auto* dosHeader = std::bit_cast<const IMAGE_DOS_HEADER*>(base);
+		auto* ntHeader = std::bit_cast<const IMAGE_NT_HEADERS64*>(dosHeader + dosHeader->e_lfanew);
+		auto* importDesc = std::bit_cast<const IMAGE_IMPORT_DESCRIPTOR*>(dosHeader + ntHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
 
 		for (auto index = 0; importDesc[index].Characteristics != 0; ++index) {
 			const char* moduleName = std::bit_cast<const char*>(dosHeader + importDesc[index].Name);
@@ -595,8 +437,8 @@ namespace DKUtil::Hook
 				ERROR("DKU_H: IAT read invalid thunk pointer");
 			}
 
-			auto* thunk = std::bit_cast<IMAGE_THUNK_DATA*>(dosHeader + importDesc[index].FirstThunk);
-			auto* oldThunk = std::bit_cast<IMAGE_THUNK_DATA*>(dosHeader + importDesc[index].OriginalFirstThunk);
+			auto* thunk = std::bit_cast<const IMAGE_THUNK_DATA*>(dosHeader + importDesc[index].FirstThunk);
+			auto* oldThunk = std::bit_cast<const IMAGE_THUNK_DATA*>(dosHeader + importDesc[index].OriginalFirstThunk);
 
 			for (void(0); thunk->u1.Function; ++oldThunk, ++thunk) {
 				if (oldThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG) {
